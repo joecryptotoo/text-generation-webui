@@ -4,12 +4,12 @@ RUN apt-get update && \
     apt-get install --no-install-recommends -y git vim build-essential python3-dev python3-venv && \
     rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/oobabooga/GPTQ-for-LLaMa /build
+RUN git clone https://github.com/oobabooga/GPTQ-for-LLaMa /build/GPTQ-for-LLaMa
 
-WORKDIR /build
+WORKDIR /build/GPTQ-for-LLaMa
 
 RUN python3 -m venv /build/venv
-RUN . /build/venv/bin/activate && \
+RUN --mount=type=cache,target=/root/.cache/pip . /build/venv/bin/activate && \
     pip3 install --upgrade pip setuptools && \
     pip3 install torch torchvision torchaudio && \
     pip3 install -r requirements.txt
@@ -19,6 +19,11 @@ RUN . /build/venv/bin/activate && \
 ARG TORCH_CUDA_ARCH_LIST="3.5;5.0;6.0;6.1;7.0;7.5;8.0;8.6+PTX"
 RUN . /build/venv/bin/activate && \
     python3 setup_cuda.py bdist_wheel -d .
+
+RUN git clone https://github.com/ggerganov/llama.cpp /build/llama.cpp
+WORKDIR /build/llama.cpp
+RUN . /build/venv/bin/activate && \
+    CMAKE_ARGS="-DLLAMA_CUBLAS=on" FORCE_CMAKE=1 pip3 install llama-cpp-python --no-cache-dir
 
 FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
 
@@ -37,13 +42,15 @@ WORKDIR /app
 ARG WEBUI_VERSION
 RUN test -n "${WEBUI_VERSION}" && git reset --hard ${WEBUI_VERSION} || echo "Using provided webui source"
 
+COPY --from=builder /build/venv /app/venv
+
 RUN virtualenv /app/venv
-RUN . /app/venv/bin/activate && \
+RUN --mount=type=cache,target=/root/.cache/pip . /app/venv/bin/activate && \
     pip3 install --upgrade pip setuptools && \
     pip3 install torch torchvision torchaudio
 
-COPY --from=builder /build /app/repositories/GPTQ-for-LLaMa
-RUN . /app/venv/bin/activate && \
+COPY --from=builder /build /app/repositories
+RUN --mount=type=cache,target=/root/.cache/pip . /app/venv/bin/activate && \
     pip3 install /app/repositories/GPTQ-for-LLaMa/*.whl
 
 COPY extensions/api/requirements.txt /app/extensions/api/requirements.txt
